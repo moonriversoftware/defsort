@@ -14,7 +14,14 @@ class TestConfigLoading:
         """Test that default config is returned when no pyproject.toml exists."""
         monkeypatch.chdir(tmp_path)
         config = load_config()
-        assert config == {"order": ["public", "protected", "private"], "method_type_order": None, "exclude": None}
+        assert config == {
+            "order": ["public", "protected", "private"],
+            "method_type_order": None,
+            "exclude": None,
+            "sort_module_level": False,
+            "sort_decorated": False,
+            "python_version": None,
+        }
 
     def test_load_custom_order(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test loading custom order from pyproject.toml."""
@@ -27,7 +34,14 @@ order = ["private", "protected", "public"]
 
         monkeypatch.chdir(tmp_path)
         config = load_config()
-        assert config == {"order": ["private", "protected", "public"], "method_type_order": None, "exclude": None}
+        assert config == {
+            "order": ["private", "protected", "public"],
+            "method_type_order": None,
+            "exclude": None,
+            "sort_module_level": False,
+            "sort_decorated": False,
+            "python_version": None,
+        }
 
     def test_invalid_order_values(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that invalid order values fall back to default."""
@@ -40,7 +54,14 @@ order = ["public", "invalid", "private"]
 
         monkeypatch.chdir(tmp_path)
         config = load_config()
-        assert config == {"order": ["public", "protected", "private"], "method_type_order": None, "exclude": None}
+        assert config == {
+            "order": ["public", "protected", "private"],
+            "method_type_order": None,
+            "exclude": None,
+            "sort_module_level": False,
+            "sort_decorated": False,
+            "python_version": None,
+        }
 
     def test_missing_order_key(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that missing order key returns default."""
@@ -53,7 +74,14 @@ some_other_key = "value"
 
         monkeypatch.chdir(tmp_path)
         config = load_config()
-        assert config == {"order": ["public", "protected", "private"], "method_type_order": None, "exclude": None}
+        assert config == {
+            "order": ["public", "protected", "private"],
+            "method_type_order": None,
+            "exclude": None,
+            "sort_module_level": False,
+            "sort_decorated": False,
+            "python_version": None,
+        }
 
     def test_missing_tool_section(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that missing tool.undersort section returns default."""
@@ -66,7 +94,14 @@ name = "test"
 
         monkeypatch.chdir(tmp_path)
         config = load_config()
-        assert config == {"order": ["public", "protected", "private"], "method_type_order": None, "exclude": None}
+        assert config == {
+            "order": ["public", "protected", "private"],
+            "method_type_order": None,
+            "exclude": None,
+            "sort_module_level": False,
+            "sort_decorated": False,
+            "python_version": None,
+        }
 
     def test_find_pyproject_in_parent(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that pyproject.toml is found in parent directories."""
@@ -84,7 +119,14 @@ order = ["private", "public", "protected"]
         monkeypatch.chdir(subdir)
 
         config = load_config()
-        assert config == {"order": ["private", "public", "protected"], "method_type_order": None, "exclude": None}
+        assert config == {
+            "order": ["private", "public", "protected"],
+            "method_type_order": None,
+            "exclude": None,
+            "sort_module_level": False,
+            "sort_decorated": False,
+            "python_version": None,
+        }
 
     def test_corrupted_toml(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that corrupted TOML file falls back to default."""
@@ -97,7 +139,14 @@ order = ["public"  # Invalid TOML
 
         monkeypatch.chdir(tmp_path)
         config = load_config()
-        assert config == {"order": ["public", "protected", "private"], "method_type_order": None, "exclude": None}
+        assert config == {
+            "order": ["public", "protected", "private"],
+            "method_type_order": None,
+            "exclude": None,
+            "sort_module_level": False,
+            "sort_decorated": False,
+            "python_version": None,
+        }
 
     def test_find_pyproject_toml_not_found(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test _find_pyproject_toml returns None when not found."""
@@ -130,6 +179,9 @@ exclude = ["tests/*", "migrations/*.py"]
             "order": ["public", "protected", "private"],
             "method_type_order": None,
             "exclude": ["tests/*", "migrations/*.py"],
+            "sort_module_level": False,
+            "sort_decorated": False,
+            "python_version": None,
         }
 
     def test_invalid_exclude_type(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -148,4 +200,72 @@ exclude = "invalid"
             "order": ["public", "protected", "private"],
             "method_type_order": None,
             "exclude": None,
+            "sort_module_level": False,
+            "sort_decorated": False,
+            "python_version": None,
         }
+
+    def test_sort_module_level_enabled(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test that sort_module_level is read from pyproject.toml."""
+        pyproject_content = """
+[tool.undersort]
+sort_module_level = true
+"""
+        pyproject_path = tmp_path / "pyproject.toml"
+        pyproject_path.write_text(pyproject_content)
+
+        monkeypatch.chdir(tmp_path)
+        assert load_config()["sort_module_level"] is True
+
+    def test_invalid_sort_module_level(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test that a non-boolean sort_module_level falls back to the default."""
+        pyproject_content = """
+[tool.undersort]
+sort_module_level = "yes"
+"""
+        pyproject_path = tmp_path / "pyproject.toml"
+        pyproject_path.write_text(pyproject_content)
+
+        monkeypatch.chdir(tmp_path)
+        assert load_config()["sort_module_level"] is False
+
+    def test_python_version_from_requires_python(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test that the target version is inferred from the project's requires-python."""
+        pyproject_content = """
+[project]
+name = "test"
+requires-python = ">=3.10,<4.0"
+"""
+        pyproject_path = tmp_path / "pyproject.toml"
+        pyproject_path.write_text(pyproject_content)
+
+        monkeypatch.chdir(tmp_path)
+        assert load_config()["python_version"] == (3, 10)
+
+    def test_explicit_python_version_wins(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test that an explicit python_version overrides requires-python."""
+        pyproject_content = """
+[project]
+name = "test"
+requires-python = ">=3.10"
+
+[tool.undersort]
+python_version = "3.14"
+"""
+        pyproject_path = tmp_path / "pyproject.toml"
+        pyproject_path.write_text(pyproject_content)
+
+        monkeypatch.chdir(tmp_path)
+        assert load_config()["python_version"] == (3, 14)
+
+    def test_invalid_python_version_ignored(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test that an unparseable python_version is ignored."""
+        pyproject_content = """
+[tool.undersort]
+python_version = "nonsense"
+"""
+        pyproject_path = tmp_path / "pyproject.toml"
+        pyproject_path.write_text(pyproject_content)
+
+        monkeypatch.chdir(tmp_path)
+        assert load_config()["python_version"] is None

@@ -4,13 +4,19 @@ import argparse
 import fnmatch
 import sys
 from pathlib import Path
+from typing import Optional
 
 from undersort import logger
 from undersort.config import load_config
+from undersort.deps import parse_python_version
 from undersort.sorter import sort_file
 
 
-def collect_python_files(path: Path, recursive: bool = True, exclude_patterns: list[str] | None = None) -> list[Path]:
+def collect_python_files(
+    path: Path,
+    recursive: bool = True,
+    exclude_patterns: Optional[list[str]] = None,  # noqa: UP045
+) -> list[Path]:
     """Collect Python files from a path (file or directory).
 
     Args:
@@ -79,8 +85,12 @@ def _matches_any_pattern(file_path: Path, patterns: list[str]) -> bool:
     return False
 
 
-def main() -> int:  # noqa: PLR0912
-    """Main entry point for undersort."""
+def _build_parser() -> argparse.ArgumentParser:
+    """Build the command line argument parser.
+
+    Returns:
+        The configured parser
+    """
     parser = argparse.ArgumentParser(description="Sort class methods by visibility (public, protected, private)")
     parser.add_argument(
         "paths",
@@ -110,10 +120,50 @@ def main() -> int:  # noqa: PLR0912
         action="append",
         help="Exclude files/directories matching pattern (can be used multiple times)",
     )
+    parser.add_argument(
+        "--sort-module-level",
+        dest="sort_module_level",
+        action="store_true",
+        default=None,
+        help="Also sort module-level function and class definitions",
+    )
+    parser.add_argument(
+        "--no-sort-module-level",
+        dest="sort_module_level",
+        action="store_false",
+        help="Don't sort module-level definitions (overrides pyproject.toml)",
+    )
+    parser.add_argument(
+        "--sort-decorated",
+        dest="sort_decorated",
+        action="store_true",
+        default=None,
+        help="Allow decorated module-level definitions to move (may reorder import-time side effects)",
+    )
+    parser.add_argument(
+        "--python-version",
+        help="Target Python version (e.g. 3.12), used to decide if annotations are eager",
+    )
+    return parser
 
-    args = parser.parse_args()
+
+def main() -> int:  # noqa: PLR0912
+    """Main entry point for undersort."""
+    args = _build_parser().parse_args()
 
     config = load_config()
+
+    sort_module_level = config["sort_module_level"] if args.sort_module_level is None else args.sort_module_level
+
+    sort_decorated = config["sort_decorated"] if args.sort_decorated is None else args.sort_decorated
+
+    python_version = config["python_version"]
+    if args.python_version:
+        parsed_version = parse_python_version(args.python_version)
+        if parsed_version is None:
+            logger.error(f"Could not parse --python-version {args.python_version!r}")
+            return 1
+        python_version = parsed_version
 
     exclude_patterns: list[str] = []
     config_exclude = config.get("exclude")
@@ -146,6 +196,9 @@ def main() -> int:  # noqa: PLR0912
                 method_type_order=config.get("method_type_order"),
                 check_only=args.check,
                 show_diff=args.diff,
+                sort_module_level=sort_module_level,
+                python_version=python_version,
+                sort_decorated=sort_decorated,
             )
 
             if not was_modified:

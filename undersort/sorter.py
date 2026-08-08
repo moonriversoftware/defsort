@@ -1,12 +1,17 @@
 """Core sorting logic for class methods."""
 
 import difflib
+import tokenize
+from collections.abc import Callable, Hashable, Sequence
 from pathlib import Path
 from typing import Literal
 
 import libcst as cst
 
 from undersort import logger
+from undersort.deps import annotations_are_eager, eager_names
+
+_Definition = cst.FunctionDef | cst.ClassDef
 
 
 def has_nosort_comment(node: cst.FunctionDef | cst.ClassDef) -> bool:
@@ -93,6 +98,63 @@ def get_method_type(method: cst.FunctionDef) -> str:
     return "instance"
 
 
+def minimize_movement(
+    indexed_nodes: Sequence[tuple[int, cst.CSTNode]],
+    group_order: Sequence[Hashable],
+    group_of: Callable[[cst.CSTNode], Hashable],
+) -> list[cst.CSTNode]:
+    """Reorder nodes into groups while preserving as much original order as possible.
+
+    Nodes that must move DOWN (into a later group) are placed at the beginning of
+    their target group; nodes that must move UP land at the end of it. Nodes that
+    are already in the right region keep their relative order.
+
+    Args:
+        indexed_nodes: (original index, node) pairs, in original order
+        group_order: The desired order of group keys
+        group_of: Callable mapping a node to its group key
+
+    Returns:
+        The reordered nodes
+    """
+    groups: dict[Hashable, list[tuple[int, cst.CSTNode]]] = {key: [] for key in group_order}
+    for idx, node in indexed_nodes:
+        groups[group_of(node)].append((idx, node))
+
+    ordered: list[cst.CSTNode] = []
+    current_position = 0
+
+    for key in group_order:
+        group = groups[key]
+        if not group:
+            continue
+
+        group_indices = [idx for idx, _ in group]
+        min_original_idx = min(group_indices)
+        max_original_idx = max(group_indices)
+
+        moved_down: list[tuple[int, cst.CSTNode]] = []
+        in_place: list[tuple[int, cst.CSTNode]] = []
+        moved_up: list[tuple[int, cst.CSTNode]] = []
+
+        for idx, node in group:
+            if idx < min_original_idx or (idx < current_position and current_position > 0):
+                moved_down.append((idx, node))
+            elif idx > max_original_idx:
+                moved_up.append((idx, node))
+            else:
+                in_place.append((idx, node))
+
+        moved_down.sort(key=lambda x: x[0])
+        in_place.sort(key=lambda x: x[0])
+        moved_up.sort(key=lambda x: x[0])
+
+        ordered.extend([node for _, node in moved_down + in_place + moved_up])
+        current_position += len(group)
+
+    return ordered
+
+
 class MethodSorter(cst.CSTTransformer):
     """Transformer to sort class methods by visibility and type."""
 
@@ -151,54 +213,13 @@ class MethodSorter(cst.CSTTransformer):
         if not sortable_methods:
             return updated_node
 
-        method_groups: dict[str, dict[str, list[tuple[int, cst.FunctionDef]]]] = {
-            "public": {"class": [], "static": [], "instance": []},
-            "protected": {"class": [], "static": [], "instance": []},
-            "private": {"class": [], "static": [], "instance": []},
-        }
+        group_order = [(visibility, method_type) for visibility in self.order for method_type in self.method_type_order]
 
-        for idx, method in sortable_methods:
-            visibility = get_method_visibility(method.name.value)
-            method_type = get_method_type(method)
-            method_groups[visibility][method_type].append((idx, method))
-
-        group_order = []
-        for visibility in self.order:
-            for method_type in self.method_type_order:
-                group_order.append((visibility, method_type))
-
-        sorted_methods = []
-        current_position = 0
-
-        for visibility, method_type in group_order:
-            group = method_groups[visibility][method_type]
-            if not group:
-                continue
-
-            group_indices = [idx for idx, _ in group]
-            min_original_idx = min(group_indices)
-            max_original_idx = max(group_indices)
-
-            moved_down = []
-            in_place = []
-            moved_up = []
-
-            for idx, method in group:
-                if idx < min_original_idx or (idx < current_position and current_position > 0):
-                    moved_down.append((idx, method))
-                elif idx > max_original_idx:
-                    moved_up.append((idx, method))
-                else:
-                    in_place.append((idx, method))
-
-            moved_down.sort(key=lambda x: x[0])
-            in_place.sort(key=lambda x: x[0])
-            moved_up.sort(key=lambda x: x[0])
-
-            group_sorted = moved_down + in_place + moved_up
-            sorted_methods.extend([method for _, method in group_sorted])
-
-            current_position += len(group)
+        sorted_methods = minimize_movement(
+            sortable_methods,
+            group_order,
+            lambda method: (get_method_visibility(method.name.value), get_method_type(method)),
+        )
 
         all_sorted = sorted_methods[:]
         for orig_idx, nosort_method in sorted(nosort_methods, key=lambda x: x[0]):
@@ -227,12 +248,300 @@ class MethodSorter(cst.CSTTransformer):
         return updated_node.with_changes(body=updated_node.body.with_changes(body=new_body))
 
 
+def sort_module_definitions(
+    module: cst.Module,
+    order: list[str],
+    eager_annotations: bool,
+    sort_decorated: bool = False,
+) -> tuple[cst.Module, bool]:
+    """Sort module-level function and class definitions by visibility.
+
+    Only runs of consecutive definitions are reordered: any other top-level
+    statement (imports, assignments, ``if`` blocks, ...) acts as a barrier, since
+    moving a definition across one could change what it sees at execution time.
+
+    Within a run, ordering is further constrained so that a definition never moves
+    above another definition it references in an eagerly evaluated position
+    (decorator, base class, default value, class body, or -- when annotations are
+    eager -- an annotation).
+
+    Args:
+        module: The parsed module
+        order: Visibility ordering configuration
+        eager_annotations: Whether annotations are evaluated at definition time
+        sort_decorated: If True, decorated definitions may be reordered too. Off by
+                        default: a decorator can run arbitrary code at import time
+                        (registry decorators such as ``@app.route``), and moving it
+                        changes the order those side effects happen in -- something
+                        no static analysis can rule out.
+
+    Returns:
+        Tuple of (module, whether anything moved)
+    """
+    body = list(module.body)
+    duplicated = _duplicated_definition_names(body)
+
+    new_body: list[cst.BaseStatement] = []
+    run: list[_Definition] = []
+    modified = False
+    is_first_run = True
+
+    def flush() -> None:
+        nonlocal modified, is_first_run
+        if not run:
+            return
+        # A comment directly above the module's first statement lives in the module
+        # header, not on the definition, so moving that definition would strand it.
+        pin_first = is_first_run and not new_body and _header_comment_is_adjacent(module)
+        is_first_run = False
+        sorted_run = _sort_definition_run(
+            run, order, eager_annotations, duplicated, pin_first=pin_first, sort_decorated=sort_decorated
+        )
+        if [id(node) for node in sorted_run] != [id(node) for node in run]:
+            modified = True
+            sorted_run = _rebalance_blank_lines(run, sorted_run)
+        new_body.extend(sorted_run)
+        run.clear()
+
+    for statement in body:
+        if isinstance(statement, (cst.FunctionDef, cst.ClassDef)):
+            run.append(statement)
+            continue
+        flush()
+        new_body.append(statement)
+
+    flush()
+
+    if not modified:
+        return module, False
+
+    return module.with_changes(body=new_body), True
+
+
+def _header_comment_is_adjacent(module: cst.Module) -> bool:
+    """Check whether the module header ends with a comment touching the first statement.
+
+    libcst attaches comments preceding the first statement to the module header
+    rather than to the statement, so such a comment would stay behind if that
+    statement moved.
+
+    Args:
+        module: The parsed module
+
+    Returns:
+        True if the last header line is a comment with no blank line after it
+    """
+    return bool(module.header) and module.header[-1].comment is not None
+
+
+def _rebalance_blank_lines(original_run: list[_Definition], sorted_run: list[_Definition]) -> list[_Definition]:
+    """Keep blank-line spacing tied to positions rather than to the moved nodes.
+
+    A definition's leading blank lines describe the gap before it, so they belong
+    to the slot it occupies -- otherwise the first definition in a run (which
+    usually has no blank lines above it) would collapse against its new neighbour
+    when moved down. Leading comments stay attached to their definition.
+
+    Args:
+        original_run: The definitions in their original order
+        sorted_run: The same definitions, reordered
+
+    Returns:
+        The reordered definitions with position-appropriate leading blank lines
+    """
+    slot_blanks = [_split_leading_blanks(node)[0] for node in original_run]
+
+    rebalanced: list[_Definition] = []
+    for position, node in enumerate(sorted_run):
+        _, own_lines = _split_leading_blanks(node)
+        rebalanced.append(node.with_changes(leading_lines=[*slot_blanks[position], *own_lines]))
+
+    return rebalanced
+
+
+def _split_leading_blanks(node: _Definition) -> tuple[list[cst.EmptyLine], list[cst.EmptyLine]]:
+    """Split a definition's leading lines into blank padding and everything else.
+
+    Args:
+        node: The definition
+
+    Returns:
+        Tuple of (leading blank lines, remaining lines starting at the first comment)
+    """
+    lines = list(node.leading_lines)
+    split_at = 0
+    while split_at < len(lines) and lines[split_at].comment is None:
+        split_at += 1
+    return lines[:split_at], lines[split_at:]
+
+
+def _duplicated_definition_names(body: Sequence[cst.BaseStatement]) -> set[str]:
+    """Find top-level definition names that are declared more than once.
+
+    Redefinitions (``@overload``, ``@singledispatch`` registrations, conditional
+    re-definitions) depend on their relative order, so they are never moved.
+
+    Args:
+        body: The module body
+
+    Returns:
+        Set of names bound by more than one top-level definition
+    """
+    counts: dict[str, int] = {}
+    for statement in body:
+        if isinstance(statement, (cst.FunctionDef, cst.ClassDef)):
+            counts[statement.name.value] = counts.get(statement.name.value, 0) + 1
+    return {name for name, count in counts.items() if count > 1}
+
+
+def _sort_definition_run(
+    run: list[_Definition],
+    order: list[str],
+    eager_annotations: bool,
+    duplicated: set[str],
+    pin_first: bool = False,
+    sort_decorated: bool = False,
+) -> list[_Definition]:
+    """Sort one run of consecutive top-level definitions.
+
+    Args:
+        run: The consecutive definitions, in original order
+        order: Visibility ordering configuration
+        eager_annotations: Whether annotations are evaluated at definition time
+        duplicated: Names that are defined more than once and must stay put
+        pin_first: If True, the first definition must keep its position
+        sort_decorated: If True, decorated definitions may move as well
+
+    Returns:
+        The reordered definitions
+    """
+    if len(run) < 2:
+        return run
+
+    pinned = {
+        idx
+        for idx, node in enumerate(run)
+        if has_nosort_comment(node) or node.name.value in duplicated or (node.decorators and not sort_decorated)
+    }
+    if pin_first:
+        pinned.add(0)
+
+    sortable = [(idx, node) for idx, node in enumerate(run) if idx not in pinned]
+    if len(sortable) < 2:
+        return run
+
+    desired = minimize_movement(sortable, list(order), lambda node: get_method_visibility(node.name.value))
+
+    candidate: list[_Definition] = list(desired)
+    for idx in sorted(pinned):
+        candidate.insert(idx, run[idx])
+
+    predecessors = _ordering_constraints(run, eager_annotations, pinned)
+    return _priority_topological_sort(run, candidate, predecessors)
+
+
+def _ordering_constraints(
+    run: list[_Definition],
+    eager_annotations: bool,
+    pinned: set[int],
+) -> dict[int, set[int]]:
+    """Build the "must come before" constraints for a run of definitions.
+
+    A definition that eagerly references an earlier definition's name must stay
+    after it. Pinned definitions additionally keep every neighbour on the side it
+    started on.
+
+    Args:
+        run: The definitions, in original order
+        eager_annotations: Whether annotations are evaluated at definition time
+        pinned: Indices of definitions that must not move
+
+    Returns:
+        Mapping of index to the set of indices that must precede it
+    """
+    predecessors: dict[int, set[int]] = {idx: set() for idx in range(len(run))}
+
+    for idx, node in enumerate(run):
+        referenced = eager_names(node, eager_annotations)
+        for earlier in range(idx):
+            if run[earlier].name.value in referenced:
+                predecessors[idx].add(earlier)
+
+    for pin in pinned:
+        for idx in range(len(run)):
+            if idx < pin:
+                predecessors[pin].add(idx)
+            elif idx > pin:
+                predecessors[idx].add(pin)
+
+    return predecessors
+
+
+def _priority_topological_sort(
+    run: list[_Definition],
+    candidate: list[_Definition],
+    predecessors: dict[int, set[int]],
+) -> list[_Definition]:
+    """Order definitions as close to ``candidate`` as the constraints allow.
+
+    Args:
+        run: The definitions, in original order
+        candidate: The preferred order, used as a tie-breaking priority
+        predecessors: Mapping of index to indices that must precede it
+
+    Returns:
+        A constraint-satisfying order, or the original order if none exists
+    """
+    priority = {id(node): position for position, node in enumerate(candidate)}
+
+    remaining = set(range(len(run)))
+    placed: set[int] = set()
+    result: list[_Definition] = []
+
+    while remaining:
+        available = [idx for idx in remaining if predecessors[idx] <= placed]
+        if not available:
+            return list(run)
+
+        chosen = min(available, key=lambda idx: priority[id(run[idx])])
+        remaining.discard(chosen)
+        placed.add(chosen)
+        result.append(run[chosen])
+
+    return result
+
+
+def _read_source(file_path: Path) -> tuple[str, str]:
+    """Read a Python file, honouring its declared encoding and line endings.
+
+    The file is decoded from bytes rather than read in text mode: text mode would
+    translate CRLF line endings to LF and silently rewrite them on save. The
+    encoding is taken from a PEP 263 coding declaration or BOM when present.
+
+    Args:
+        file_path: Path to the Python file
+
+    Returns:
+        Tuple of (source code, the encoding to write it back with)
+    """
+    try:
+        with open(file_path, "rb") as f:
+            encoding, _ = tokenize.detect_encoding(f.readline)
+    except SyntaxError:
+        encoding = "utf-8"
+
+    return file_path.read_bytes().decode(encoding), encoding
+
+
 def sort_file(
     file_path: Path,
     order: list[str],
     method_type_order: list[str] | None = None,
     check_only: bool = False,
     show_diff: bool = False,
+    sort_module_level: bool = False,
+    python_version: tuple[int, int] | None = None,
+    sort_decorated: bool = False,
 ) -> bool:
     """Sort methods in a Python file.
 
@@ -242,12 +551,15 @@ def sort_file(
         method_type_order: Optional method type ordering within each visibility level
         check_only: If True, only check if file needs sorting
         show_diff: If True, show diff of changes
+        sort_module_level: If True, also sort module-level functions and classes
+        python_version: Target Python version, used to decide whether annotations
+                        are evaluated eagerly
+        sort_decorated: If True, module-level decorated definitions may move too
 
     Returns:
         True if file was modified (or needs modification in check mode)
     """
-    with open(file_path, encoding="utf-8") as f:
-        source_code = f.read()
+    source_code, encoding = _read_source(file_path)
 
     try:
         tree = cst.parse_module(source_code)
@@ -259,8 +571,16 @@ def sort_file(
 
     sorter = MethodSorter(order, method_type_order)
     new_tree = tree.visit(sorter)
+    modified = sorter.modified
 
-    if not sorter.modified:
+    if sort_module_level:
+        eager_annotations = annotations_are_eager(tree, python_version)
+        new_tree, module_modified = sort_module_definitions(
+            new_tree, order, eager_annotations, sort_decorated=sort_decorated
+        )
+        modified = modified or module_modified
+
+    if not modified:
         return False
 
     new_code = new_tree.code
@@ -275,7 +595,8 @@ def sort_file(
         logger.diff("".join(diff))
 
     if not check_only:
-        with open(file_path, "w", encoding="utf-8") as f:
-            f.write(new_code)
+        # Written as bytes so the file's original line endings, BOM, and declared
+        # encoding survive the rewrite untouched.
+        file_path.write_bytes(new_code.encode(encoding))
 
     return True

@@ -6,6 +6,8 @@ A Python tool that automatically sorts class methods by visibility (public, prot
 
 - Automatically reorders class methods based on visibility and method type
 - Two-level sorting: primary by visibility, secondary by method type
+- Optional module-level mode that sorts top-level functions and classes, with
+  dependency analysis so decorators, base classes, and annotations keep working
 - Fully configurable ordering via `pyproject.toml`
 - Pre-commit hook integration
 - Colored output for better readability
@@ -45,6 +47,17 @@ method_type_order = ["instance", "class", "static"]
 # Exclude files/directories matching these patterns (optional)
 # Patterns support glob syntax (e.g., "tests/*", "migrations/*.py", "**/generated/*")
 # exclude = ["tests/*", "migrations/*.py"]
+
+# Also sort module-level functions and classes (optional, default: false)
+# sort_module_level = true
+
+# Allow decorated module-level definitions to move (optional, default: false)
+# Leave off unless your decorators have no order-dependent import-time side effects
+# sort_decorated = true
+
+# Target Python version, used to decide whether annotations are evaluated eagerly
+# (optional; inferred from [project] requires-python when not set)
+# python_version = "3.12"
 ```
 
 ### Method Visibility Rules
@@ -83,6 +96,103 @@ Example order with default configuration:
 7. Private instance methods
 8. Private class methods
 9. Private static methods
+
+## Module-Level Sorting (optional)
+
+By default undersort only reorders methods inside classes. Enable `sort_module_level`
+to apply the same visibility ordering to top-level functions and classes:
+
+```toml
+[tool.undersort]
+sort_module_level = true
+```
+
+Or from the command line: `undersort --sort-module-level src/` (use
+`--no-sort-module-level` to override the config file for one run).
+
+Classes and functions are ordered in a single stream by the same naming rules
+(`public` → `protected` → `private`).
+
+### Safety Rules
+
+Unlike methods in a class body, module-level definitions execute in order, so
+reordering them can break a module. undersort only moves a definition when it is
+provably safe:
+
+**Non-definition statements are barriers.** Definitions are only reordered within
+runs of consecutive `def`/`class` statements. An import, assignment, or `if` block
+between them splits the file into independent runs, so nothing moves across it:
+
+```python
+def _helper(): ...
+def public_a(): ...    # these two are sorted together
+
+CONSTANT = compute()   # barrier -- nothing crosses this line
+
+def _other(): ...
+def public_b(): ...    # these two are sorted together
+```
+
+**Definition-time references are respected.** A definition never moves above
+something it needs when it is defined. That includes decorators, base classes and
+`metaclass=` keywords, default argument values, and class bodies (which run
+eagerly, though method bodies inside them do not):
+
+```python
+class _Base: ...
+
+class Public(_Base):   # stays below _Base despite being public
+    ...
+```
+
+References made inside a function or method body impose no constraint, since they
+resolve when the function is called rather than when it is defined.
+
+**Annotations are handled according to the effective evaluation semantics.**
+Annotations are eagerly evaluated -- and therefore constrain ordering -- unless
+either of the following applies, in which case annotated types are free to move:
+
+- the module starts with `from __future__ import annotations` (PEP 563)
+- the target Python version is 3.14 or newer, where annotations are lazy by
+  default (PEP 649)
+
+The target version comes from `python_version`, or the project's
+`requires-python` lower bound, or the running interpreter, in that order.
+
+**Redefined names never move.** If a name is defined more than once at the top
+level (`@overload` blocks, `@singledispatch` registrations, conditional
+redefinitions), all of its definitions stay put.
+
+**Decorated definitions are pinned by default.** A decorator runs at import time
+and can have side effects whose *order* matters — `@app.route`, `@cli.command`,
+`@register` and friends append to a registry as the module loads. No static
+analysis can tell a registering decorator from a pure one, so decorated
+definitions keep their position unless you opt in:
+
+```toml
+[tool.undersort]
+sort_decorated = true    # only if you know your decorators are order-independent
+```
+
+**`# nosort` still applies**, both file-level and on individual definitions.
+Note that at module level a pinned definition acts as a hard anchor: nothing is
+reordered across it. This is stricter than the class-method behaviour, because
+top-level statements execute in order.
+
+### Known Limitation
+
+undersort guarantees that reordering never breaks *name resolution* — nothing
+moves above a name it needs at definition time. It cannot fully guarantee
+*side-effect order*. Pinning decorated definitions covers the common registry
+pattern, but two cases remain outside static reach:
+
+- classes whose creation has side effects through a base class defined in another
+  module (`__init_subclass__` hooks, registering metaclasses)
+- any definition whose mere position is load-bearing for reasons not visible in
+  the file
+
+If your module has import-time ordering semantics like these, mark the affected
+definitions with `# nosort`, or leave `sort_module_level` off for that file.
 
 ### Skipping Sorting with `# nosort`
 
@@ -168,6 +278,18 @@ undersort --exclude "tests/*" --exclude "migrations/*.py" src/
 
 # Multiple exclude patterns (can be combined with config file patterns)
 undersort --exclude "test_*.py" --exclude "*/legacy/*" .
+
+# Also sort module-level functions and classes
+undersort --sort-module-level src/
+
+# Override the config file for a single run
+undersort --no-sort-module-level src/
+
+# Tell undersort which Python version to assume for annotation semantics
+undersort --sort-module-level --python-version 3.14 src/
+
+# Also reorder decorated definitions (off by default, see Known Limitation)
+undersort --sort-module-level --sort-decorated src/
 ```
 
 **Note**: By default, undersort excludes all dot-prefixed directories (e.g., `.venv`, `.git`, `.pytest_cache`) and common build directories (`venv`, `__pycache__`, `node_modules`) when scanning directories recursively. You can add custom exclusions via CLI flags or the config file.
