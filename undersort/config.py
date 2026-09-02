@@ -7,7 +7,9 @@ from typing import Any
 from undersort import logger
 from undersort.deps import parse_python_version
 
-VALID_VISIBILITIES = {"public", "protected", "private"}
+REQUIRED_VISIBILITIES = {"public", "protected", "private"}
+OPTIONAL_VISIBILITIES = {"init", "dunder"}
+VALID_VISIBILITIES = REQUIRED_VISIBILITIES | OPTIONAL_VISIBILITIES
 VALID_METHOD_TYPES = {"class", "static", "instance"}
 
 
@@ -69,8 +71,9 @@ def _load_orderings(config: dict[str, Any], result: dict[str, Any], pyproject_pa
     """
     if "order" in config:
         order = config["order"]
-        if sorted(order) != sorted(VALID_VISIBILITIES):
-            logger.warning(f"Invalid order values in {pyproject_path}. Using default order.")
+        problem = _order_problem(order)
+        if problem:
+            logger.warning(f"Invalid order in {pyproject_path}: {problem}. Using default order.")
         else:
             result["order"] = order
 
@@ -80,6 +83,36 @@ def _load_orderings(config: dict[str, Any], result: dict[str, Any], pyproject_pa
             logger.warning(f"Invalid method_type_order values in {pyproject_path}. Using default.")
         else:
             result["method_type_order"] = method_type_order
+
+
+def _order_problem(order: Any) -> str | None:
+    """Validate a configured visibility order.
+
+    ``public``, ``protected`` and ``private`` must all appear, so no method can be
+    silently dropped. The dunder groups are optional: leaving them out keeps magic
+    methods in ``public``, which is how earlier versions behaved.
+
+    Args:
+        order: The configured value
+
+    Returns:
+        A description of the problem, or None if the order is usable
+    """
+    if not isinstance(order, list) or not all(isinstance(value, str) for value in order):
+        return "must be a list of strings"
+
+    unknown = [value for value in order if value not in VALID_VISIBILITIES]
+    if unknown:
+        return f"unknown group(s) {sorted(unknown)}; valid groups are {sorted(VALID_VISIBILITIES)}"
+
+    if len(set(order)) != len(order):
+        return "contains duplicate groups"
+
+    missing = REQUIRED_VISIBILITIES - set(order)
+    if missing:
+        return f"missing required group(s) {sorted(missing)}"
+
+    return None
 
 
 def _load_module_level_options(config: dict[str, Any], result: dict[str, Any], pyproject_path: Path) -> None:

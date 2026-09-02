@@ -4,7 +4,6 @@ import difflib
 import tokenize
 from collections.abc import Callable, Hashable, Sequence
 from pathlib import Path
-from typing import Literal
 
 import libcst as cst
 
@@ -12,6 +11,12 @@ from undersort import logger
 from undersort.deps import annotations_are_eager, eager_names
 
 _Definition = cst.FunctionDef | cst.ClassDef
+
+#: Visibility groups always present, and the order used when none is configured.
+DEFAULT_ORDER = ("public", "protected", "private")
+
+#: Dunder methods that build an object, kept apart from the general protocol ones.
+CREATIONAL_DUNDERS = frozenset({"__new__", "__init__", "__init_subclass__", "__post_init__"})
 
 
 def has_nosort_comment(node: cst.FunctionDef | cst.ClassDef) -> bool:
@@ -54,18 +59,41 @@ def file_has_nosort(module: cst.Module) -> bool:
     return False
 
 
-def get_method_visibility(method_name: str) -> Literal["public", "private", "protected"]:
-    """Determine method visibility based on naming convention.
+def is_dunder(method_name: str) -> bool:
+    """Check whether a name is a magic (dunder) name.
 
     Args:
         method_name: The name of the method
 
     Returns:
-        'public' for method (no underscore prefix) or magic methods (__method__),
-        'protected' for _method (single underscore),
-        'private' for __method (dunder prefix, not magic method)
+        True for names wrapped in double underscores, such as ``__init__``
     """
-    if method_name.startswith("__") and method_name.endswith("__"):
+    return method_name.startswith("__") and method_name.endswith("__")
+
+
+def get_method_visibility(method_name: str, order: Sequence[str] | None = None) -> str:
+    """Determine method visibility based on naming convention.
+
+    Dunder methods are only split out of ``public`` when the configured order
+    asks for it, so an order that does not mention them keeps the historical
+    behaviour of treating every magic method as public.
+
+    Args:
+        method_name: The name of the method
+        order: The configured visibility order. When it contains ``"init"``,
+               creational dunders form their own group; when it contains
+               ``"dunder"``, the remaining magic methods form theirs.
+
+    Returns:
+        One of 'init', 'dunder', 'public', 'protected' or 'private'
+    """
+    groups = DEFAULT_ORDER if order is None else order
+
+    if is_dunder(method_name):
+        if method_name in CREATIONAL_DUNDERS and "init" in groups:
+            return "init"
+        if "dunder" in groups:
+            return "dunder"
         return "public"
 
     if method_name.startswith("__"):
@@ -218,15 +246,16 @@ class MethodSorter(cst.CSTTransformer):
         sorted_methods = minimize_movement(
             sortable_methods,
             group_order,
-            lambda method: (get_method_visibility(method.name.value), get_method_type(method)),
+            lambda method: (get_method_visibility(method.name.value, self.order), get_method_type(method)),
         )
 
         all_sorted = sorted_methods[:]
         for orig_idx, nosort_method in sorted(nosort_methods, key=lambda x: x[0]):
             all_sorted.insert(orig_idx, nosort_method)
 
-        if methods != all_sorted:
+        if [id(method) for method in all_sorted] != [id(method) for method in methods]:
             self.modified = True
+            all_sorted = _rebalance_blank_lines(methods, all_sorted)
 
         sorted_methods = all_sorted
 
@@ -430,7 +459,7 @@ def _sort_definition_run(
     if len(sortable) < 2:
         return run
 
-    desired = minimize_movement(sortable, list(order), lambda node: get_method_visibility(node.name.value))
+    desired = minimize_movement(sortable, list(order), lambda node: get_method_visibility(node.name.value, order))
 
     candidate: list[_Definition] = list(desired)
     for idx in sorted(pinned):

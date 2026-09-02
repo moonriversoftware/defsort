@@ -36,7 +36,9 @@ Configure the method ordering in your `pyproject.toml`:
 ```toml
 [tool.undersort]
 # Method visibility ordering (primary sort)
-# Options: "public", "protected", "private"
+# Required groups: "public", "protected", "private"
+# Optional groups: "init" (creational dunders), "dunder" (all other magic methods)
+# Omit the optional groups to keep magic methods inside "public" (the default).
 order = ["public", "protected", "private"]
 
 # Method type ordering within each visibility level (secondary sort, optional)
@@ -65,6 +67,46 @@ method_type_order = ["instance", "class", "static"]
 - **Public methods**: No underscore prefix (e.g., `def method()`) or magic methods (e.g., `__init__`, `__str__`)
 - **Protected methods**: Single underscore prefix (e.g., `def _method()`)
 - **Private methods**: Double underscore prefix, not magic (e.g., `def __method()`)
+
+#### Separating dunder methods
+
+By default magic methods count as **public**, which leaves `__init__` mixed in with
+ordinary public methods. Add either of the two optional groups to `order` to pull
+them out:
+
+- **`init`** — creational dunders: `__new__`, `__init__`, `__init_subclass__`, `__post_init__`
+- **`dunder`** — every other magic method: `__str__`, `__get__`, `__eq__`, ...
+
+```toml
+[tool.undersort]
+order = ["init", "dunder", "public", "protected", "private"]
+method_type_order = ["static", "class", "instance"]
+```
+
+```python
+# before                              # after
+class C:                              class C:
+    @classmethod                          def __init__(self) -> None: ...
+    def default(cls): ...
+                                          def __str__(self) -> str: ...
+    def __init__(self) -> None: ...
+                                          @classmethod
+    def random_public(self): ...          def default(cls): ...
+
+    def __str__(self) -> str: ...         def random_public(self): ...
+```
+
+The groups are positional, so `order = ["public", "protected", "private", "init", "dunder"]`
+puts the magic methods last instead.
+
+Notes:
+
+- `public`, `protected` and `private` must always be present, so no method can be
+  silently dropped. `init` and `dunder` are optional.
+- Using `init` without `dunder` leaves non-creational magic methods in `public`.
+- Name-mangled methods (`__method`, no trailing underscores) remain **private** —
+  they are not dunders.
+- An existing `order` that does not mention the new groups behaves exactly as before.
 
 ### Method Type Rules
 
