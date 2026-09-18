@@ -66,9 +66,12 @@ order = ["public", "protected", "private"]
 # Method type ordering within each visibility level (secondary sort, optional)
 # Options: "class" (classmethod), "static" (staticmethod), "instance" (regular methods)
 # Default: ["instance", "class", "static"]
-# Set to "none" to disable this sub-sort entirely, so only sort_mode determines
-# order within a visibility group.
 method_type_order = ["instance", "class", "static"]
+
+# To disable the method-type sub-sort so only sort_mode determines order within
+# a visibility group, set method_type_order to the bare string "none" -- NOT a
+# list containing "none":
+# method_type_order = "none"
 
 # Exclude files/directories matching these patterns (optional)
 # Patterns support glob syntax (e.g., "tests/*", "migrations/*.py", "**/generated/*")
