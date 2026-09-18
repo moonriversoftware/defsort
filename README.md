@@ -57,6 +57,11 @@ method_type_order = ["instance", "class", "static"]
 # Leave off unless your decorators have no order-dependent import-time side effects
 # sort_decorated = true
 
+# How to order definitions within a group (optional, default: "minimize_movement")
+# "minimize_movement" preserves as much of the original order as possible.
+# "alphabetical" ignores original order and sorts purely by name within each group.
+# sort_mode = "alphabetical"
+
 # Target Python version, used to decide whether annotations are evaluated eagerly
 # (optional; inferred from [project] requires-python when not set)
 # python_version = "3.12"
@@ -121,13 +126,28 @@ Methods are sorted in two levels:
 1. **Primary**: By visibility (public → protected → private)
 2. **Secondary**: Within each visibility level, by method type (instance → class → static by default)
 
-The sorting algorithm **minimizes movement** to preserve the original order as much as possible:
+Within each (visibility, method type) group, `sort_mode` decides how members of that
+group are ordered relative to each other:
 
-- Methods that need to move DOWN (to a later section) are placed at the **beginning** of their target section
-- Methods that need to move UP (to an earlier section) are placed at the **end** of their target section
-- Methods already in the correct section maintain their relative order
+- **`minimize_movement`** (default): preserves the original order as much as possible.
+  - Methods that need to move DOWN (to a later section) are placed at the **beginning** of their target section
+  - Methods that need to move UP (to an earlier section) are placed at the **end** of their target section
+  - Methods already in the correct section maintain their relative order
+- **`alphabetical`**: ignores original position entirely and orders members of each
+  group purely by name. A `@property`/`@x.setter` pair (or any two definitions
+  sharing a name) still stays adjacent, in its original relative order, since they
+  compare equal under the sort key.
 
-Example order with default configuration:
+```toml
+[tool.undersort]
+sort_mode = "alphabetical"
+```
+
+```bash
+undersort --sort-mode alphabetical src/
+```
+
+Example order with default configuration (`minimize_movement`):
 
 1. Public instance methods
 2. Public class methods
@@ -332,6 +352,10 @@ undersort --sort-module-level --python-version 3.14 src/
 
 # Also reorder decorated definitions (off by default, see Known Limitation)
 undersort --sort-module-level --sort-decorated src/
+
+# Alphabetize within each group instead of minimizing movement (applies to
+# both class methods and, when enabled, module-level definitions)
+undersort --sort-mode alphabetical src/
 ```
 
 **Note**: By default, undersort excludes all dot-prefixed directories (e.g., `.venv`, `.git`, `.pytest_cache`) and common build directories (`venv`, `__pycache__`, `node_modules`) when scanning directories recursively. You can add custom exclusions via CLI flags or the config file.

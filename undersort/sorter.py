@@ -183,10 +183,50 @@ def minimize_movement(
     return ordered
 
 
+def alphabetize(
+    indexed_nodes: Sequence[tuple[int, cst.CSTNode]],
+    group_order: Sequence[Hashable],
+    group_of: Callable[[cst.CSTNode], Hashable],
+) -> list[cst.CSTNode]:
+    """Reorder nodes into groups, alphabetized by name within each group.
+
+    A drop-in alternative to :func:`minimize_movement` with the same signature.
+    Unlike ``minimize_movement``, a node's original position plays no part in
+    its output position -- every node in a group is ordered purely by
+    ``(group rank, name)``. Python's stable sort keeps nodes that share a name
+    (e.g. a ``@property`` and its ``@x.setter``) adjacent and in their original
+    relative order, since they compare equal under this key.
+
+    Args:
+        indexed_nodes: (original index, node) pairs, in original order
+        group_order: The desired order of group keys
+        group_of: Callable mapping a node to its group key
+
+    Returns:
+        The reordered nodes
+    """
+    rank = {key: i for i, key in enumerate(group_order)}
+    return [node for _, node in sorted(indexed_nodes, key=lambda pair: (rank[group_of(pair[1])], pair[1].name.value))]
+
+
+#: Maps a configured ``sort_mode`` string to the function that implements it.
+#: Both have the same ``(indexed_nodes, group_order, group_of) -> list[node]``
+#: signature, so callers can select one without branching at each call site.
+SORT_FUNCTIONS: dict[str, Callable[..., list[cst.CSTNode]]] = {
+    "minimize_movement": minimize_movement,
+    "alphabetical": alphabetize,
+}
+
+
 class MethodSorter(cst.CSTTransformer):
     """Transformer to sort class methods by visibility and type."""
 
-    def __init__(self, order: list[str], method_type_order: list[str] | None = None):
+    def __init__(
+        self,
+        order: list[str],
+        method_type_order: list[str] | None = None,
+        sort_mode: str = "minimize_movement",
+    ):
         """Initialize the transformer.
 
         Args:
@@ -195,9 +235,11 @@ class MethodSorter(cst.CSTTransformer):
             method_type_order: Optional list specifying the order of method types
                               within each visibility level
                               (e.g., ["instance", "class", "static"])
+            sort_mode: Either "minimize_movement" (default) or "alphabetical"
         """
         self.order = order
         self.method_type_order = method_type_order or ["instance", "class", "static"]
+        self.sort_fn = SORT_FUNCTIONS[sort_mode]
         self.modified = False
 
     def leave_ClassDef(  # noqa: PLR0912, PLR0915
@@ -243,7 +285,7 @@ class MethodSorter(cst.CSTTransformer):
 
         group_order = [(visibility, method_type) for visibility in self.order for method_type in self.method_type_order]
 
-        sorted_methods = minimize_movement(
+        sorted_methods = self.sort_fn(
             sortable_methods,
             group_order,
             lambda method: (get_method_visibility(method.name.value, self.order), get_method_type(method)),
@@ -282,6 +324,7 @@ def sort_module_definitions(
     order: list[str],
     eager_annotations: bool,
     sort_decorated: bool = False,
+    sort_mode: str = "minimize_movement",
 ) -> tuple[cst.Module, bool]:
     """Sort module-level function and class definitions by visibility.
 
@@ -303,6 +346,7 @@ def sort_module_definitions(
                         (registry decorators such as ``@app.route``), and moving it
                         changes the order those side effects happen in -- something
                         no static analysis can rule out.
+        sort_mode: Either "minimize_movement" (default) or "alphabetical"
 
     Returns:
         Tuple of (module, whether anything moved)
@@ -324,7 +368,13 @@ def sort_module_definitions(
         pin_first = is_first_run and not new_body and _header_comment_is_adjacent(module)
         is_first_run = False
         sorted_run = _sort_definition_run(
-            run, order, eager_annotations, duplicated, pin_first=pin_first, sort_decorated=sort_decorated
+            run,
+            order,
+            eager_annotations,
+            duplicated,
+            pin_first=pin_first,
+            sort_decorated=sort_decorated,
+            sort_mode=sort_mode,
         )
         if [id(node) for node in sorted_run] != [id(node) for node in run]:
             modified = True
@@ -430,6 +480,7 @@ def _sort_definition_run(
     duplicated: set[str],
     pin_first: bool = False,
     sort_decorated: bool = False,
+    sort_mode: str = "minimize_movement",
 ) -> list[_Definition]:
     """Sort one run of consecutive top-level definitions.
 
@@ -440,6 +491,7 @@ def _sort_definition_run(
         duplicated: Names that are defined more than once and must stay put
         pin_first: If True, the first definition must keep its position
         sort_decorated: If True, decorated definitions may move as well
+        sort_mode: Either "minimize_movement" (default) or "alphabetical"
 
     Returns:
         The reordered definitions
@@ -459,7 +511,8 @@ def _sort_definition_run(
     if len(sortable) < 2:
         return run
 
-    desired = minimize_movement(sortable, list(order), lambda node: get_method_visibility(node.name.value, order))
+    sort_fn = SORT_FUNCTIONS[sort_mode]
+    desired = sort_fn(sortable, list(order), lambda node: get_method_visibility(node.name.value, order))
 
     candidate: list[_Definition] = list(desired)
     for idx in sorted(pinned):
@@ -571,6 +624,7 @@ def sort_file(
     sort_module_level: bool = False,
     python_version: tuple[int, int] | None = None,
     sort_decorated: bool = False,
+    sort_mode: str = "minimize_movement",
 ) -> bool:
     """Sort methods in a Python file.
 
@@ -584,6 +638,9 @@ def sort_file(
         python_version: Target Python version, used to decide whether annotations
                         are evaluated eagerly
         sort_decorated: If True, module-level decorated definitions may move too
+        sort_mode: Either "minimize_movement" (default, preserves as much of the
+                   original order as possible) or "alphabetical" (ignores original
+                   order, sorts purely by name within each group)
 
     Returns:
         True if file was modified (or needs modification in check mode)
@@ -598,14 +655,14 @@ def sort_file(
     if file_has_nosort(tree):
         return False
 
-    sorter = MethodSorter(order, method_type_order)
+    sorter = MethodSorter(order, method_type_order, sort_mode=sort_mode)
     new_tree = tree.visit(sorter)
     modified = sorter.modified
 
     if sort_module_level:
         eager_annotations = annotations_are_eager(tree, python_version)
         new_tree, module_modified = sort_module_definitions(
-            new_tree, order, eager_annotations, sort_decorated=sort_decorated
+            new_tree, order, eager_annotations, sort_decorated=sort_decorated, sort_mode=sort_mode
         )
         modified = modified or module_modified
 

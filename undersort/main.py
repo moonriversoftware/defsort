@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 from undersort import logger
-from undersort.config import load_config
+from undersort.config import VALID_SORT_MODES, load_config
 from undersort.deps import parse_python_version
 from undersort.sorter import sort_file
 
@@ -144,6 +144,16 @@ def _build_parser() -> argparse.ArgumentParser:
         "--python-version",
         help="Target Python version (e.g. 3.12), used to decide if annotations are eager",
     )
+    parser.add_argument(
+        "--sort-mode",
+        choices=sorted(VALID_SORT_MODES),
+        default=None,
+        help=(
+            "How to order definitions within a group: 'minimize_movement' (default) "
+            "preserves as much of the original order as possible; 'alphabetical' "
+            "ignores original order and sorts purely by name. Overrides pyproject.toml."
+        ),
+    )
     return parser
 
 
@@ -156,6 +166,8 @@ def main() -> int:  # noqa: PLR0912
     sort_module_level = config["sort_module_level"] if args.sort_module_level is None else args.sort_module_level
 
     sort_decorated = config["sort_decorated"] if args.sort_decorated is None else args.sort_decorated
+
+    sort_mode = config["sort_mode"] if args.sort_mode is None else args.sort_mode
 
     python_version = config["python_version"]
     if args.python_version:
@@ -199,6 +211,7 @@ def main() -> int:  # noqa: PLR0912
                 sort_module_level=sort_module_level,
                 python_version=python_version,
                 sort_decorated=sort_decorated,
+                sort_mode=sort_mode,
             )
 
             if not was_modified:

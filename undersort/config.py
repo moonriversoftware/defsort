@@ -11,6 +11,7 @@ REQUIRED_VISIBILITIES = {"public", "protected", "private"}
 OPTIONAL_VISIBILITIES = {"init", "dunder"}
 VALID_VISIBILITIES = REQUIRED_VISIBILITIES | OPTIONAL_VISIBILITIES
 VALID_METHOD_TYPES = {"class", "static", "instance"}
+VALID_SORT_MODES = {"minimize_movement", "alphabetical"}
 
 
 def load_config() -> dict[str, Any]:
@@ -26,6 +27,7 @@ def load_config() -> dict[str, Any]:
         "exclude": None,
         "sort_module_level": False,
         "sort_decorated": False,
+        "sort_mode": "minimize_movement",
         "python_version": None,
     }
 
@@ -136,6 +138,16 @@ def _load_module_level_options(config: dict[str, Any], result: dict[str, Any], p
             result["sort_decorated"] = sort_decorated
         else:
             logger.warning(f"Invalid sort_decorated value in {pyproject_path}. Must be a boolean.")
+
+    if "sort_mode" in config:
+        sort_mode = config["sort_mode"]
+        if sort_mode in VALID_SORT_MODES:
+            result["sort_mode"] = sort_mode
+        else:
+            logger.warning(
+                f"Invalid sort_mode {sort_mode!r} in {pyproject_path}. "
+                f"Must be one of {sorted(VALID_SORT_MODES)}. Using default."
+            )
 
     if "python_version" in config:
         parsed = parse_python_version(str(config["python_version"]))

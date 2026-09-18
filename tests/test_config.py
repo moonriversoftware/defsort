@@ -20,6 +20,7 @@ class TestConfigLoading:
             "exclude": None,
             "sort_module_level": False,
             "sort_decorated": False,
+            "sort_mode": "minimize_movement",
             "python_version": None,
         }
 
@@ -40,6 +41,7 @@ order = ["private", "protected", "public"]
             "exclude": None,
             "sort_module_level": False,
             "sort_decorated": False,
+            "sort_mode": "minimize_movement",
             "python_version": None,
         }
 
@@ -60,6 +62,7 @@ order = ["public", "invalid", "private"]
             "exclude": None,
             "sort_module_level": False,
             "sort_decorated": False,
+            "sort_mode": "minimize_movement",
             "python_version": None,
         }
 
@@ -80,6 +83,7 @@ some_other_key = "value"
             "exclude": None,
             "sort_module_level": False,
             "sort_decorated": False,
+            "sort_mode": "minimize_movement",
             "python_version": None,
         }
 
@@ -100,6 +104,7 @@ name = "test"
             "exclude": None,
             "sort_module_level": False,
             "sort_decorated": False,
+            "sort_mode": "minimize_movement",
             "python_version": None,
         }
 
@@ -125,6 +130,7 @@ order = ["private", "public", "protected"]
             "exclude": None,
             "sort_module_level": False,
             "sort_decorated": False,
+            "sort_mode": "minimize_movement",
             "python_version": None,
         }
 
@@ -145,6 +151,7 @@ order = ["public"  # Invalid TOML
             "exclude": None,
             "sort_module_level": False,
             "sort_decorated": False,
+            "sort_mode": "minimize_movement",
             "python_version": None,
         }
 
@@ -181,6 +188,7 @@ exclude = ["tests/*", "migrations/*.py"]
             "exclude": ["tests/*", "migrations/*.py"],
             "sort_module_level": False,
             "sort_decorated": False,
+            "sort_mode": "minimize_movement",
             "python_version": None,
         }
 
@@ -202,6 +210,7 @@ exclude = "invalid"
             "exclude": None,
             "sort_module_level": False,
             "sort_decorated": False,
+            "sort_mode": "minimize_movement",
             "python_version": None,
         }
 
@@ -228,6 +237,30 @@ sort_module_level = "yes"
 
         monkeypatch.chdir(tmp_path)
         assert load_config()["sort_module_level"] is False
+
+    def test_sort_mode_alphabetical(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test that sort_mode is read from pyproject.toml."""
+        pyproject_content = """
+[tool.undersort]
+sort_mode = "alphabetical"
+"""
+        pyproject_path = tmp_path / "pyproject.toml"
+        pyproject_path.write_text(pyproject_content)
+
+        monkeypatch.chdir(tmp_path)
+        assert load_config()["sort_mode"] == "alphabetical"
+
+    def test_invalid_sort_mode(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test that an unrecognized sort_mode falls back to the default."""
+        pyproject_content = """
+[tool.undersort]
+sort_mode = "shuffle"
+"""
+        pyproject_path = tmp_path / "pyproject.toml"
+        pyproject_path.write_text(pyproject_content)
+
+        monkeypatch.chdir(tmp_path)
+        assert load_config()["sort_mode"] == "minimize_movement"
 
     def test_python_version_from_requires_python(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that the target version is inferred from the project's requires-python."""
