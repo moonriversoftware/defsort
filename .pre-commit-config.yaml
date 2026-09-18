@@ -4,8 +4,8 @@
 repos:
   - repo: local
     hooks:
-      - id: undersort
-        name: undersort
-        entry: uv run undersort
+      - id: defsort
+        name: defsort
+        entry: uv run defsort
         language: system
         types: [python]

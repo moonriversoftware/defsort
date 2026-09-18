@@ -5,8 +5,8 @@ from pathlib import Path
 import libcst as cst
 import pytest
 
-from undersort.config import load_config
-from undersort.sorter import MethodSorter, get_method_visibility, is_dunder, sort_module_definitions
+from defsort.config import load_config
+from defsort.sorter import MethodSorter, get_method_visibility, is_dunder, sort_module_definitions
 
 FULL = ["init", "dunder", "public", "protected", "private"]
 LEGACY = ["public", "protected", "private"]
@@ -168,7 +168,7 @@ class TestOrderValidation:
     )
     def test_valid_orders_accepted(self, order: list[str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Orders containing all required groups are accepted."""
-        (tmp_path / "pyproject.toml").write_text(f"[tool.undersort]\norder = {order!r}\n".replace("'", '"'))
+        (tmp_path / "pyproject.toml").write_text(f"[tool.defsort]\norder = {order!r}\n".replace("'", '"'))
         monkeypatch.chdir(tmp_path)
         assert load_config()["order"] == order
 
@@ -184,7 +184,7 @@ class TestOrderValidation:
     def test_invalid_orders_fall_back(self, order: object, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Incomplete, unknown, duplicated or malformed orders fall back to the default."""
         rendered = repr(order).replace("'", '"')
-        (tmp_path / "pyproject.toml").write_text(f"[tool.undersort]\norder = {rendered}\n")
+        (tmp_path / "pyproject.toml").write_text(f"[tool.defsort]\norder = {rendered}\n")
         monkeypatch.chdir(tmp_path)
         assert load_config()["order"] == ["public", "protected", "private"]
 

@@ -1,11 +1,26 @@
-# undersort
+# defsort
 
-A Python tool that automatically sorts class methods by visibility (public, protected, private) and type (class, static, instance).
+A Python tool that automatically sorts function, method, and class definitions by
+visibility (public, protected, private) and type (class, static, instance), with
+either alphabetical or minimize-movement ordering, and provable safety around
+decorators and definition-time dependencies.
+
+## Origin
+
+defsort started as a fork of [undersort](https://github.com/kivicode/undersort) by
+KiviCode, which pioneered the visibility-based sorting and minimize-movement
+algorithm this project still uses as one of two ordering modes. It has since
+diverged substantially, adding an alphabetical ordering mode alongside the
+original minimize-movement one. Given the scope of that divergence, it was
+renamed rather than kept as a same-named fork. The original project's MIT
+license and copyright notice are preserved unchanged in `LICENSE`.
 
 ## Features
 
-- Automatically reorders class methods based on visibility and method type
-- Two-level sorting: primary by visibility, secondary by method type
+- Automatically reorders function, method, and class definitions based on
+  visibility and (for methods) type
+- Two ordering modes: `minimize_movement` (preserves original order as much as
+  possible) or `alphabetical` (sorts purely by name within each group)
 - Optional module-level mode that sorts top-level functions and classes, with
   dependency analysis so decorators, base classes, and annotations keep working
 - Fully configurable ordering via `pyproject.toml`
@@ -18,14 +33,14 @@ A Python tool that automatically sorts class methods by visibility (public, prot
 
 ```bash
 # Using uv (recommended)
-uv add undersort
+uv add defsort
 
 # Using pip
-pip install undersort
+pip install defsort
 
 # For development
-git clone https://github.com/kivicode/undersort
-cd undersort
+git clone https://github.com/moonriversoftware/defsort
+cd defsort
 uv sync
 ```
 
@@ -34,7 +49,7 @@ uv sync
 Configure the method ordering in your `pyproject.toml`:
 
 ```toml
-[tool.undersort]
+[tool.defsort]
 # Method visibility ordering (primary sort)
 # Required groups: "public", "protected", "private"
 # Optional groups: "init" (creational dunders), "dunder" (all other magic methods)
@@ -83,7 +98,7 @@ them out:
 - **`dunder`** — every other magic method: `__str__`, `__get__`, `__eq__`, ...
 
 ```toml
-[tool.undersort]
+[tool.defsort]
 order = ["init", "dunder", "public", "protected", "private"]
 method_type_order = ["static", "class", "instance"]
 ```
@@ -139,12 +154,12 @@ group are ordered relative to each other:
   compare equal under the sort key.
 
 ```toml
-[tool.undersort]
+[tool.defsort]
 sort_mode = "alphabetical"
 ```
 
 ```bash
-undersort --sort-mode alphabetical src/
+defsort --sort-mode alphabetical src/
 ```
 
 Example order with default configuration (`minimize_movement`):
@@ -161,15 +176,15 @@ Example order with default configuration (`minimize_movement`):
 
 ## Module-Level Sorting (optional)
 
-By default undersort only reorders methods inside classes. Enable `sort_module_level`
+By default defsort only reorders methods inside classes. Enable `sort_module_level`
 to apply the same visibility ordering to top-level functions and classes:
 
 ```toml
-[tool.undersort]
+[tool.defsort]
 sort_module_level = true
 ```
 
-Or from the command line: `undersort --sort-module-level src/` (use
+Or from the command line: `defsort --sort-module-level src/` (use
 `--no-sort-module-level` to override the config file for one run).
 
 Classes and functions are ordered in a single stream by the same naming rules
@@ -178,7 +193,7 @@ Classes and functions are ordered in a single stream by the same naming rules
 ### Safety Rules
 
 Unlike methods in a class body, module-level definitions execute in order, so
-reordering them can break a module. undersort only moves a definition when it is
+reordering them can break a module. defsort only moves a definition when it is
 provably safe:
 
 **Non-definition statements are barriers.** Definitions are only reordered within
@@ -232,7 +247,7 @@ analysis can tell a registering decorator from a pure one, so decorated
 definitions keep their position unless you opt in:
 
 ```toml
-[tool.undersort]
+[tool.defsort]
 sort_decorated = true    # only if you know your decorators are order-independent
 ```
 
@@ -243,7 +258,7 @@ top-level statements execute in order.
 
 ### Known Limitation
 
-undersort guarantees that reordering never breaks *name resolution* — nothing
+defsort guarantees that reordering never breaks *name resolution* — nothing
 moves above a name it needs at definition time. It cannot fully guarantee
 *side-effect order*. Pinning decorated definitions covers the common registry
 pattern, but two cases remain outside static reach:
@@ -307,58 +322,58 @@ class Example:
 
 ```bash
 # Sort a single file
-undersort example.py
+defsort example.py
 
 # Sort multiple files
-undersort file1.py file2.py file3.py
+defsort file1.py file2.py file3.py
 
 # Sort all Python files in a directory (recursive by default)
-undersort src/
+defsort src/
 
 # Sort all Python files in current directory and subdirectories
-undersort .
+defsort .
 
 # Non-recursive directory sorting (only files in the directory, not subdirectories)
-undersort src/ --no-recursive
+defsort src/ --no-recursive
 
 # Wildcards work too (expanded by shell)
-undersort *.py
-undersort src/**/*.py
+defsort *.py
+defsort src/**/*.py
 
 # Check if files need sorting (useful for CI)
-undersort --check example.py
-undersort --check src/
+defsort --check example.py
+defsort --check src/
 
 # Show diff of changes
-undersort --diff example.py
+defsort --diff example.py
 
 # Combine flags
-undersort --check --diff src/
+defsort --check --diff src/
 
 # Exclude specific files or directories
-undersort --exclude "tests/*" --exclude "migrations/*.py" src/
+defsort --exclude "tests/*" --exclude "migrations/*.py" src/
 
 # Multiple exclude patterns (can be combined with config file patterns)
-undersort --exclude "test_*.py" --exclude "*/legacy/*" .
+defsort --exclude "test_*.py" --exclude "*/legacy/*" .
 
 # Also sort module-level functions and classes
-undersort --sort-module-level src/
+defsort --sort-module-level src/
 
 # Override the config file for a single run
-undersort --no-sort-module-level src/
+defsort --no-sort-module-level src/
 
-# Tell undersort which Python version to assume for annotation semantics
-undersort --sort-module-level --python-version 3.14 src/
+# Tell defsort which Python version to assume for annotation semantics
+defsort --sort-module-level --python-version 3.14 src/
 
 # Also reorder decorated definitions (off by default, see Known Limitation)
-undersort --sort-module-level --sort-decorated src/
+defsort --sort-module-level --sort-decorated src/
 
 # Alphabetize within each group instead of minimizing movement (applies to
 # both class methods and, when enabled, module-level definitions)
-undersort --sort-mode alphabetical src/
+defsort --sort-mode alphabetical src/
 ```
 
-**Note**: By default, undersort excludes all dot-prefixed directories (e.g., `.venv`, `.git`, `.pytest_cache`) and common build directories (`venv`, `__pycache__`, `node_modules`) when scanning directories recursively. You can add custom exclusions via CLI flags or the config file.
+**Note**: By default, defsort excludes all dot-prefixed directories (e.g., `.venv`, `.git`, `.pytest_cache`) and common build directories (`venv`, `__pycache__`, `node_modules`) when scanning directories recursively. You can add custom exclusions via CLI flags or the config file.
 
 ### Pre-commit Integration
 
@@ -368,12 +383,12 @@ Add to your `.pre-commit-config.yaml`:
 repos:
   - repo: local
     hooks:
-      - id: undersort
-        name: undersort
-        entry: undersort
+      - id: defsort
+        name: defsort
+        entry: defsort
         language: python
         types: [python]
-        additional_dependencies: ["undersort"]
+        additional_dependencies: ["defsort"]
 ```
 
 Then install the hook:
@@ -455,13 +470,13 @@ The methods are now organized by:
 uv sync
 
 # Run on example file
-uv run undersort example.py
+uv run defsort example.py
 
 # Test with check mode
-uv run undersort --check example.py
+uv run defsort --check example.py
 
 # View diff
-uv run undersort --diff example.py
+uv run defsort --diff example.py
 ```
 
 ## License

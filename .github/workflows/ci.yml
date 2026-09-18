@@ -57,7 +57,7 @@ jobs:
         run: uv sync
 
       - name: Run tests
-        run: uv run pytest -v --cov=undersort --cov-report=term-missing
+        run: uv run pytest -v --cov=defsort --cov-report=term-missing
 
   publish:
     name: Publish to PyPI

@@ -1,6 +1,11 @@
 MIT License
 
 Copyright (c) 2025 Vladimir Kirilenko
+Copyright (c) 2026 Mike Taber (Moon River Software)
+
+Portions of this software are derived from undersort
+(https://github.com/kivicode/undersort) by Vladimir Kirilenko, used and modified
+under the MIT License above.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

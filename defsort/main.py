@@ -1,4 +1,4 @@
-"""Main entry point for undersort CLI."""
+"""Main entry point for defsort CLI."""
 
 import argparse
 import fnmatch
@@ -6,10 +6,10 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from undersort import logger
-from undersort.config import VALID_SORT_MODES, load_config
-from undersort.deps import parse_python_version
-from undersort.sorter import sort_file
+from defsort import logger
+from defsort.config import VALID_SORT_MODES, load_config
+from defsort.deps import parse_python_version
+from defsort.sorter import sort_file
 
 
 def collect_python_files(
@@ -158,7 +158,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> int:  # noqa: PLR0912
-    """Main entry point for undersort."""
+    """Main entry point for defsort."""
     args = _build_parser().parse_args()
 
     config = load_config()

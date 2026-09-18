@@ -4,7 +4,7 @@ from pathlib import Path
 
 import libcst as cst
 
-from undersort.sorter import sort_file, sort_module_definitions
+from defsort.sorter import sort_file, sort_module_definitions
 
 ORDER = ["public", "protected", "private"]
 

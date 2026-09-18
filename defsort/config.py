@@ -1,11 +1,11 @@
-"""Configuration loading for undersort."""
+"""Configuration loading for defsort."""
 
 import tomllib
 from pathlib import Path
 from typing import Any
 
-from undersort import logger
-from undersort.deps import parse_python_version
+from defsort import logger
+from defsort.deps import parse_python_version
 
 REQUIRED_VISIBILITIES = {"public", "protected", "private"}
 OPTIONAL_VISIBILITIES = {"init", "dunder"}
@@ -45,10 +45,10 @@ def load_config() -> dict[str, Any]:
     result: dict[str, Any] = default_config.copy()
     result["python_version"] = _project_python_version(data)
 
-    if "tool" not in data or "undersort" not in data["tool"]:
+    if "tool" not in data or "defsort" not in data["tool"]:
         return result
 
-    config = data["tool"]["undersort"]
+    config = data["tool"]["defsort"]
 
     _load_orderings(config, result, pyproject_path)
     _load_module_level_options(config, result, pyproject_path)
@@ -67,7 +67,7 @@ def _load_orderings(config: dict[str, Any], result: dict[str, Any], pyproject_pa
     """Read the visibility and method-type ordering options into the result.
 
     Args:
-        config: The ``[tool.undersort]`` table
+        config: The ``[tool.defsort]`` table
         result: The config dict to update in place
         pyproject_path: Path used in warning messages
     """
@@ -121,7 +121,7 @@ def _load_module_level_options(config: dict[str, Any], result: dict[str, Any], p
     """Read the module-level sorting options into the result.
 
     Args:
-        config: The ``[tool.undersort]`` table
+        config: The ``[tool.defsort]`` table
         result: The config dict to update in place
         pyproject_path: Path used in warning messages
     """

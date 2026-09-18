@@ -7,8 +7,8 @@ from pathlib import Path
 
 import libcst as cst
 
-from undersort import logger
-from undersort.deps import annotations_are_eager, eager_names
+from defsort import logger
+from defsort.deps import annotations_are_eager, eager_names
 
 _Definition = cst.FunctionDef | cst.ClassDef
 

@@ -3,7 +3,7 @@
 import tempfile
 from pathlib import Path
 
-from undersort.sorter import sort_file
+from defsort.sorter import sort_file
 
 
 class TestNosortDirectives:

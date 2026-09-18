@@ -5,8 +5,8 @@ from pathlib import Path
 import libcst as cst
 import pytest
 
-from undersort.deps import annotations_are_eager, has_future_annotations, parse_python_version
-from undersort.sorter import sort_file, sort_module_definitions
+from defsort.deps import annotations_are_eager, has_future_annotations, parse_python_version
+from defsort.sorter import sort_file, sort_module_definitions
 
 ORDER = ["public", "protected", "private"]
 

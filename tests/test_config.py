@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from undersort.config import _find_pyproject_toml, load_config
+from defsort.config import _find_pyproject_toml, load_config
 
 
 class TestConfigLoading:
@@ -27,7 +27,7 @@ class TestConfigLoading:
     def test_load_custom_order(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test loading custom order from pyproject.toml."""
         pyproject_content = """
-[tool.undersort]
+[tool.defsort]
 order = ["private", "protected", "public"]
 """
         pyproject_path = tmp_path / "pyproject.toml"
@@ -48,7 +48,7 @@ order = ["private", "protected", "public"]
     def test_invalid_order_values(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that invalid order values fall back to default."""
         pyproject_content = """
-[tool.undersort]
+[tool.defsort]
 order = ["public", "invalid", "private"]
 """
         pyproject_path = tmp_path / "pyproject.toml"
@@ -69,7 +69,7 @@ order = ["public", "invalid", "private"]
     def test_missing_order_key(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that missing order key returns default."""
         pyproject_content = """
-[tool.undersort]
+[tool.defsort]
 some_other_key = "value"
 """
         pyproject_path = tmp_path / "pyproject.toml"
@@ -88,7 +88,7 @@ some_other_key = "value"
         }
 
     def test_missing_tool_section(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Test that missing tool.undersort section returns default."""
+        """Test that missing tool.defsort section returns default."""
         pyproject_content = """
 [project]
 name = "test"
@@ -112,7 +112,7 @@ name = "test"
         """Test that pyproject.toml is found in parent directories."""
         # Create pyproject.toml in parent
         pyproject_content = """
-[tool.undersort]
+[tool.defsort]
 order = ["private", "public", "protected"]
 """
         pyproject_path = tmp_path / "pyproject.toml"
@@ -137,7 +137,7 @@ order = ["private", "public", "protected"]
     def test_corrupted_toml(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that corrupted TOML file falls back to default."""
         pyproject_content = """
-[tool.undersort
+[tool.defsort
 order = ["public"  # Invalid TOML
 """
         pyproject_path = tmp_path / "pyproject.toml"
@@ -173,7 +173,7 @@ order = ["public"  # Invalid TOML
     def test_load_exclude_patterns(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test loading exclude patterns from pyproject.toml."""
         pyproject_content = """
-[tool.undersort]
+[tool.defsort]
 order = ["public", "protected", "private"]
 exclude = ["tests/*", "migrations/*.py"]
 """
@@ -195,7 +195,7 @@ exclude = ["tests/*", "migrations/*.py"]
     def test_invalid_exclude_type(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that invalid exclude type falls back to None."""
         pyproject_content = """
-[tool.undersort]
+[tool.defsort]
 order = ["public", "protected", "private"]
 exclude = "invalid"
 """
@@ -217,7 +217,7 @@ exclude = "invalid"
     def test_sort_module_level_enabled(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that sort_module_level is read from pyproject.toml."""
         pyproject_content = """
-[tool.undersort]
+[tool.defsort]
 sort_module_level = true
 """
         pyproject_path = tmp_path / "pyproject.toml"
@@ -229,7 +229,7 @@ sort_module_level = true
     def test_invalid_sort_module_level(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that a non-boolean sort_module_level falls back to the default."""
         pyproject_content = """
-[tool.undersort]
+[tool.defsort]
 sort_module_level = "yes"
 """
         pyproject_path = tmp_path / "pyproject.toml"
@@ -241,7 +241,7 @@ sort_module_level = "yes"
     def test_sort_mode_alphabetical(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that sort_mode is read from pyproject.toml."""
         pyproject_content = """
-[tool.undersort]
+[tool.defsort]
 sort_mode = "alphabetical"
 """
         pyproject_path = tmp_path / "pyproject.toml"
@@ -253,7 +253,7 @@ sort_mode = "alphabetical"
     def test_invalid_sort_mode(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that an unrecognized sort_mode falls back to the default."""
         pyproject_content = """
-[tool.undersort]
+[tool.defsort]
 sort_mode = "shuffle"
 """
         pyproject_path = tmp_path / "pyproject.toml"
@@ -282,7 +282,7 @@ requires-python = ">=3.10,<4.0"
 name = "test"
 requires-python = ">=3.10"
 
-[tool.undersort]
+[tool.defsort]
 python_version = "3.14"
 """
         pyproject_path = tmp_path / "pyproject.toml"
@@ -294,7 +294,7 @@ python_version = "3.14"
     def test_invalid_python_version_ignored(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that an unparseable python_version is ignored."""
         pyproject_content = """
-[tool.undersort]
+[tool.defsort]
 python_version = "nonsense"
 """
         pyproject_path = tmp_path / "pyproject.toml"

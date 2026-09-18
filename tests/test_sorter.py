@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from undersort.sorter import get_method_visibility, sort_file
+from defsort.sorter import get_method_visibility, sort_file
 
 
 class TestVisibilityDetection:
