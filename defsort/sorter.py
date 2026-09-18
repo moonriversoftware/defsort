@@ -295,7 +295,7 @@ class MethodSorter(cst.CSTTransformer):
     def __init__(
         self,
         order: list[str],
-        method_type_order: list[str] | None = None,
+        method_type_order: list[str] | str | None = None,
         sort_mode: str = "minimize_movement",
     ):
         """Initialize the transformer.
@@ -305,13 +305,25 @@ class MethodSorter(cst.CSTTransformer):
                    (e.g., ["public", "protected", "private"])
             method_type_order: Optional list specifying the order of method types
                               within each visibility level
-                              (e.g., ["instance", "class", "static"])
+                              (e.g., ["instance", "class", "static"]), or the
+                              string "none" to disable the method-type sub-sort
+                              entirely, leaving ``sort_mode`` as the only ordering
+                              applied within a visibility group
             sort_mode: Either "minimize_movement" (default) or "alphabetical"
         """
         self.order = order
-        self.method_type_order = method_type_order or ["instance", "class", "static"]
         self.sort_fn = SORT_FUNCTIONS[sort_mode]
         self.modified = False
+
+        if method_type_order == "none":
+            self.group_order = list(order)
+            self.group_of: Callable[[cst.FunctionDef], Hashable] = lambda method: get_method_visibility(
+                method.name.value, order
+            )
+        else:
+            method_type_order = method_type_order or ["instance", "class", "static"]
+            self.group_order = [(visibility, method_type) for visibility in order for method_type in method_type_order]
+            self.group_of = lambda method: (get_method_visibility(method.name.value, order), get_method_type(method))
 
     def leave_ClassDef(  # noqa: PLR0912, PLR0915
         self,
@@ -374,13 +386,7 @@ class MethodSorter(cst.CSTTransformer):
         if not sortable_methods:
             return updated_node
 
-        group_order = [(visibility, method_type) for visibility in self.order for method_type in self.method_type_order]
-
-        sorted_methods = self.sort_fn(
-            sortable_methods,
-            group_order,
-            lambda method: (get_method_visibility(method.name.value, self.order), get_method_type(method)),
-        )
+        sorted_methods = self.sort_fn(sortable_methods, self.group_order, self.group_of)
 
         all_sorted = sorted_methods[:]
         for orig_idx, nosort_method in sorted(nosort_methods, key=lambda x: x[0]):
@@ -724,7 +730,7 @@ def _read_source(file_path: Path) -> tuple[str, str]:
 def sort_file(
     file_path: Path,
     order: list[str],
-    method_type_order: list[str] | None = None,
+    method_type_order: list[str] | str | None = None,
     check_only: bool = False,
     show_diff: bool = False,
     sort_module_level: bool = False,
@@ -737,7 +743,8 @@ def sort_file(
     Args:
         file_path: Path to the Python file
         order: Method visibility ordering configuration
-        method_type_order: Optional method type ordering within each visibility level
+        method_type_order: Optional method type ordering within each visibility level,
+                           or "none" to disable the method-type sub-sort entirely
         check_only: If True, only check if file needs sorting
         show_diff: If True, show diff of changes
         sort_module_level: If True, also sort module-level functions and classes

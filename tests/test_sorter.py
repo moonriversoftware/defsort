@@ -486,3 +486,77 @@ class Example:
             assert protected_instance_idx < protected_class_idx < protected_static_idx
         finally:
             temp_path.unlink()
+
+    def test_method_type_order_none_disables_sub_sort(self) -> None:
+        """Test that method_type_order='none' leaves method type out of the grouping."""
+        source = """
+class Example:
+    @staticmethod
+    def b_static():
+        pass
+
+    def a_instance(self):
+        pass
+
+    @classmethod
+    def c_class(cls):
+        pass
+"""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+            f.write(source)
+            temp_path = Path(f.name)
+
+        try:
+            order = ["public", "protected", "private"]
+            was_modified = sort_file(temp_path, order, method_type_order="none")
+
+            # All three are already in one visibility group (public), so with no
+            # method-type sub-sort and minimize_movement, nothing needs to move.
+            assert was_modified is False
+
+            with open(temp_path) as f:
+                result = f.read()
+
+            static_idx = result.find("def b_static")
+            instance_idx = result.find("def a_instance")
+            class_idx = result.find("def c_class")
+
+            assert static_idx < instance_idx < class_idx
+        finally:
+            temp_path.unlink()
+
+    def test_method_type_order_none_with_alphabetical_sort_mode(self) -> None:
+        """Test that method_type_order='none' combines with sort_mode to ignore type."""
+        source = """
+class Example:
+    @staticmethod
+    def c_static():
+        pass
+
+    def a_instance(self):
+        pass
+
+    @classmethod
+    def b_class(cls):
+        pass
+"""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+            f.write(source)
+            temp_path = Path(f.name)
+
+        try:
+            order = ["public", "protected", "private"]
+            was_modified = sort_file(temp_path, order, method_type_order="none", sort_mode="alphabetical")
+
+            assert was_modified is True
+
+            with open(temp_path) as f:
+                result = f.read()
+
+            instance_idx = result.find("def a_instance")
+            class_idx = result.find("def b_class")
+            static_idx = result.find("def c_static")
+
+            assert instance_idx < class_idx < static_idx
+        finally:
+            temp_path.unlink()

@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "defsort"
-version = "0.1.0"
-description = "Sorts Python function, method, and class definitions by visibility, with provable safety around comments, decorators, and definition-time dependencies"
+version = "0.1.7"
+description = "Sorts Python function, method, and class definitions by visibility and type, with provable safety around comments, decorators, and definition-time dependencies"
 authors = [{ name = "Mike Taber", email = "miketaber@users.noreply.github.com" }]
 readme = "README.md"
 requires-python = ">=3.8"

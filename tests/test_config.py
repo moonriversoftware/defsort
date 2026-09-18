@@ -214,6 +214,42 @@ exclude = "invalid"
             "python_version": None,
         }
 
+    def test_load_custom_method_type_order(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test loading a custom method_type_order permutation from pyproject.toml."""
+        pyproject_content = """
+[tool.defsort]
+method_type_order = ["static", "class", "instance"]
+"""
+        pyproject_path = tmp_path / "pyproject.toml"
+        pyproject_path.write_text(pyproject_content)
+
+        monkeypatch.chdir(tmp_path)
+        assert load_config()["method_type_order"] == ["static", "class", "instance"]
+
+    def test_method_type_order_none_disables_sub_sort(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test that method_type_order = "none" is accepted as a sentinel value."""
+        pyproject_content = """
+[tool.defsort]
+method_type_order = "none"
+"""
+        pyproject_path = tmp_path / "pyproject.toml"
+        pyproject_path.write_text(pyproject_content)
+
+        monkeypatch.chdir(tmp_path)
+        assert load_config()["method_type_order"] == "none"
+
+    def test_invalid_method_type_order(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test that an invalid method_type_order falls back to the default."""
+        pyproject_content = """
+[tool.defsort]
+method_type_order = ["instance", "class"]
+"""
+        pyproject_path = tmp_path / "pyproject.toml"
+        pyproject_path.write_text(pyproject_content)
+
+        monkeypatch.chdir(tmp_path)
+        assert load_config()["method_type_order"] is None
+
     def test_sort_module_level_enabled(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that sort_module_level is read from pyproject.toml."""
         pyproject_content = """

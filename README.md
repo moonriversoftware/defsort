@@ -66,6 +66,8 @@ order = ["public", "protected", "private"]
 # Method type ordering within each visibility level (secondary sort, optional)
 # Options: "class" (classmethod), "static" (staticmethod), "instance" (regular methods)
 # Default: ["instance", "class", "static"]
+# Set to "none" to disable this sub-sort entirely, so only sort_mode determines
+# order within a visibility group.
 method_type_order = ["instance", "class", "static"]
 
 # Exclude files/directories matching these patterns (optional)

@@ -81,10 +81,12 @@ def _load_orderings(config: dict[str, Any], result: dict[str, Any], pyproject_pa
 
     if "method_type_order" in config:
         method_type_order = config["method_type_order"]
-        if sorted(method_type_order) != sorted(VALID_METHOD_TYPES):
-            logger.warning(f"Invalid method_type_order values in {pyproject_path}. Using default.")
-        else:
+        if method_type_order == "none" or (
+            isinstance(method_type_order, list) and sorted(method_type_order) == sorted(VALID_METHOD_TYPES)
+        ):
             result["method_type_order"] = method_type_order
+        else:
+            logger.warning(f"Invalid method_type_order values in {pyproject_path}. Using default.")
 
 
 def _order_problem(order: Any) -> str | None:
