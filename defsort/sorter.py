@@ -59,6 +59,77 @@ def file_has_nosort(module: cst.Module) -> bool:
     return False
 
 
+def has_ambiguous_leading_comment(node: cst.FunctionDef | cst.ClassDef) -> bool:
+    """Check whether a definition's leading comment more likely belongs above it.
+
+    libcst always attaches a comment to the *following* statement, so a comment
+    that was written as a trailing remark about the code above it is
+    indistinguishable, by attachment alone, from one written to document this
+    definition -- reordering can silently carry it onto an unrelated neighbour.
+
+    One shape of that ambiguity is resolvable without understanding what the
+    comment means: a comment glued to the statement above (no blank line
+    separating them) but itself separated from this definition by a blank line
+    reads, by ordinary convention, as trailing content of what precedes it, not
+    as documentation of this definition. A comment glued to *both* sides is left
+    alone -- that shape is identical to the extremely common "comment directly
+    documents the definition it precedes" convention, which this tool (and
+    ``has_nosort_comment`` users generally) intentionally preserves elsewhere.
+
+    Args:
+        node: The definition to check
+
+    Returns:
+        True if the leading comment is unambiguously about the code above, not
+        about this definition
+    """
+    blank_prefix, rest = _split_leading_blanks(node)
+    if blank_prefix or not rest:
+        return False
+    return rest[-1].comment is None
+
+
+def has_fully_ambiguous_leading_comment(node: cst.FunctionDef | cst.ClassDef) -> bool:
+    """Check whether a definition's leading comment touches it on both sides.
+
+    This is the shape ``has_ambiguous_leading_comment`` deliberately leaves
+    alone -- a comment could genuinely be documentation for this definition, or
+    could be an unseparated trailing remark about whatever precedes it. Nothing
+    in the syntax can tell the two apart, so callers use this to warn rather
+    than to change ordering.
+
+    Args:
+        node: The definition to check
+
+    Returns:
+        True if the leading comment has no blank line on either side
+    """
+    blank_prefix, rest = _split_leading_blanks(node)
+    return not blank_prefix and bool(rest) and rest[-1].comment is not None
+
+
+def _warn_about_fully_ambiguous_comments(original_group: Sequence[cst.FunctionDef | cst.ClassDef]) -> None:
+    """Warn about definitions whose comment could belong to either side of it.
+
+    Called whenever a group actually gets reordered. A comment glued to both
+    the statement above and this definition (see has_fully_ambiguous_leading_comment)
+    is left in place rather than pinned, since that shape is also the ordinary
+    "comment documents the definition below it" convention -- but the group
+    just moved, so it's worth a nudge to double-check by hand.
+
+    Args:
+        original_group: The definitions as they were before sorting
+    """
+    for node in original_group:
+        if has_fully_ambiguous_leading_comment(node):
+            logger.warning(
+                f"'{node.name.value}' was reordered and has a comment directly above it "
+                "with no blank line on either side -- if that comment actually describes "
+                "the code above it rather than documenting this definition, it may now "
+                "read as attached to the wrong definition. Please check it by hand."
+            )
+
+
 def is_dunder(method_name: str) -> bool:
     """Check whether a name is a magic (dunder) name.
 
@@ -261,21 +332,41 @@ class MethodSorter(cst.CSTTransformer):
 
         methods = []
         non_methods = []
+        # Whether each method is immediately preceded, in the raw class body,
+        # by another method with nothing (a comment aside) between them --
+        # needed below to tell a comment glued to a sibling method apart from
+        # one glued to some other class-body statement that never moves anyway.
+        predecessor_is_method: dict[int, bool] = {}
+        prev_was_method = False
 
         for item in updated_node.body.body:
             if isinstance(item, cst.FunctionDef):
+                predecessor_is_method[id(item)] = prev_was_method
+                prev_was_method = True
                 methods.append(item)
             else:
+                prev_was_method = False
                 non_methods.append(item)
 
         if not methods:
             return updated_node
 
+        # A method whose leading comment unambiguously belongs to the sibling
+        # above it (see has_ambiguous_leading_comment) is pinned together with
+        # that sibling, exactly like a nosort method, so the comment cannot end
+        # up glued to a different method after sorting.
+        pinned_by_comment: set[int] = set()
+        for i, method in enumerate(methods):
+            if has_ambiguous_leading_comment(method):
+                pinned_by_comment.add(i)
+                if predecessor_is_method[id(method)]:
+                    pinned_by_comment.add(i - 1)
+
         sortable_methods = []
         nosort_methods = []
 
         for i, method in enumerate(methods):
-            if has_nosort_comment(method):
+            if has_nosort_comment(method) or i in pinned_by_comment:
                 nosort_methods.append((i, method))
             else:
                 sortable_methods.append((i, method))
@@ -297,6 +388,7 @@ class MethodSorter(cst.CSTTransformer):
 
         if [id(method) for method in all_sorted] != [id(method) for method in methods]:
             self.modified = True
+            _warn_about_fully_ambiguous_comments(methods)
             all_sorted = _rebalance_blank_lines(methods, all_sorted)
 
         sorted_methods = all_sorted
@@ -378,6 +470,7 @@ def sort_module_definitions(
         )
         if [id(node) for node in sorted_run] != [id(node) for node in run]:
             modified = True
+            _warn_about_fully_ambiguous_comments(run)
             sorted_run = _rebalance_blank_lines(run, sorted_run)
         new_body.extend(sorted_run)
         run.clear()
@@ -504,6 +597,19 @@ def _sort_definition_run(
         for idx, node in enumerate(run)
         if has_nosort_comment(node) or node.name.value in duplicated or (node.decorators and not sort_decorated)
     }
+    for idx, node in enumerate(run):
+        if not has_ambiguous_leading_comment(node):
+            continue
+        # The comment reads as trailing content of whatever precedes this
+        # definition, not documentation of it. Pinning only this index isn't
+        # enough -- with other movable definitions before it, the sort could
+        # still land a different one immediately above it. Pinning it *and*
+        # its immediate predecessor together, as a single unmovable pair
+        # (analogous to a barrier), is what keeps the comment next to the
+        # definition it was actually written about.
+        pinned.add(idx)
+        if idx > 0:
+            pinned.add(idx - 1)
     if pin_first:
         pinned.add(0)
 

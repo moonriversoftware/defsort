@@ -3,17 +3,21 @@
 A Python tool that automatically sorts function, method, and class definitions by
 visibility (public, protected, private) and type (class, static, instance), with
 either alphabetical or minimize-movement ordering, and provable safety around
-decorators and definition-time dependencies.
+comments, decorators, and definition-time dependencies.
 
 ## Origin
 
 defsort started as a fork of [undersort](https://github.com/kivicode/undersort) by
 KiviCode, which pioneered the visibility-based sorting and minimize-movement
 algorithm this project still uses as one of two ordering modes. It has since
-diverged substantially, adding an alphabetical ordering mode alongside the
-original minimize-movement one. Given the scope of that divergence, it was
-renamed rather than kept as a same-named fork. The original project's MIT
-license and copyright notice are preserved unchanged in `LICENSE`.
+diverged substantially: an alphabetical ordering mode, and a fix for a comment-
+misattachment safety gap present in both the original tool and this fork's early
+history (a comment could silently end up read as documenting the wrong definition
+after a reorder -- see `has_ambiguous_leading_comment` in `defsort/sorter.py` and
+the "A comment glued to the code above it..." section below). Given the scope of
+that divergence, it was renamed rather than kept as a same-named fork. The
+original project's MIT license and copyright notice are preserved unchanged in
+`LICENSE`.
 
 ## Features
 
@@ -23,6 +27,9 @@ license and copyright notice are preserved unchanged in `LICENSE`.
   possible) or `alphabetical` (sorts purely by name within each group)
 - Optional module-level mode that sorts top-level functions and classes, with
   dependency analysis so decorators, base classes, and annotations keep working
+- Comments are never silently reattached to the wrong definition: an
+  unambiguous case is fixed automatically, and the remaining genuinely
+  ambiguous case is flagged with a warning instead of guessed at
 - Fully configurable ordering via `pyproject.toml`
 - Pre-commit hook integration
 - Colored output for better readability
@@ -255,6 +262,35 @@ sort_decorated = true    # only if you know your decorators are order-independen
 Note that at module level a pinned definition acts as a hard anchor: nothing is
 reordered across it. This is stricter than the class-method behaviour, because
 top-level statements execute in order.
+
+**A comment glued to the code above it is not mistaken for documentation of what
+follows.** libcst always attaches a comment to the statement after it, so a
+trailing remark left with no blank line under the code it explains --
+
+```python
+def _b():
+    pass
+# ^ note about _b above
+
+def a():
+    pass
+```
+
+-- is indistinguishable, by attachment alone, from a comment documenting `a`.
+Reordering could otherwise carry it onto an unrelated neighbour. defsort
+resolves this one shape mechanically: a comment glued to what precedes it, but
+separated from the following definition by a blank line, pins that definition
+together with its neighbour so neither moves and the comment stays exactly
+where it was. This applies at both module level and inside class bodies.
+
+A comment glued to *both* sides (no blank line on either side) is left alone,
+since that shape is identical to the ordinary "comment documents the
+definition it precedes" convention this tool otherwise relies on and preserves
+(`# about public\ndef public_a(): ...` with no blank line reads, by
+convention, as documentation of `public_a`). Nothing in the syntax can tell
+that convention apart from an unseparated trailing remark, so if a group
+containing that shape gets reordered, defsort prints a warning naming the
+definition so it can be checked by hand -- it does not block the run.
 
 ### Known Limitation
 
