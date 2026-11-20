@@ -4,11 +4,11 @@ build-backend = "hatchling.build"
 
 [project]
 name = "defsort"
-version = "0.1.7"
+version = "0.1.8"
 description = "Sorts Python function, method, and class definitions by visibility and type, with provable safety around comments, decorators, and definition-time dependencies"
 authors = [{ name = "Mike Taber", email = "miketaber@users.noreply.github.com" }]
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 license = { text = "MIT" }
 keywords = ["sorting", "code-formatter", "linter", "python", "class-methods"]
 classifiers = [
@@ -16,15 +16,13 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Software Development :: Quality Assurance",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
-dependencies = ["libcst>=1.1.0", "rich>=13.0.0"]
+dependencies = ["libcst>=1.1.0", "rich>=13.0.0", "tomli>=1.1.0; python_version < \"3.11\""]
 
 [project.urls]
 Homepage = "https://github.com/moonriversoftware/defsort"
@@ -57,7 +55,7 @@ method_type_order = ["instance", "class", "static"]
 [tool.ruff]
 unsafe-fixes = true
 exclude = [".venv"]
-target-version = "py311"
+target-version = "py310"
 line-length = 120
 
 [tool.ruff.lint]

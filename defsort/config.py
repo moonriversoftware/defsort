@@ -1,11 +1,16 @@
 """Configuration loading for defsort."""
 
-import tomllib
+import sys
 from pathlib import Path
 from typing import Any
 
 from defsort import logger
 from defsort.deps import parse_python_version
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:  # pragma: no cover - exercised only on Python 3.10
+    import tomli as tomllib
 
 REQUIRED_VISIBILITIES = {"public", "protected", "private"}
 OPTIONAL_VISIBILITIES = {"init", "dunder"}
