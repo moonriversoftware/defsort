@@ -38,12 +38,15 @@ original project's MIT license and copyright notice are preserved unchanged in
 
 ## Installation
 
+defsort is installed from GitHub, not PyPI (the `defsort` name on PyPI belongs to an
+unrelated project). Replace `v0.1.8` with the release you want.
+
 ```bash
 # Using uv (recommended)
-uv add defsort
+uv add "defsort @ git+https://github.com/moonriversoftware/defsort@v0.1.8"
 
 # Using pip
-pip install defsort
+pip install "git+https://github.com/moonriversoftware/defsort@v0.1.8"
 
 # For development
 git clone https://github.com/moonriversoftware/defsort
